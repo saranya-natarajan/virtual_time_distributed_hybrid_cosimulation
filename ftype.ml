@@ -7,19 +7,18 @@ exception FMU_error of string
    
 type port = ustring
 
-type superdensetime = 
-  {
-    model_time : float;
-    index : int;
-  }
- 
+type superdensetime = float * int 
+open Ustring.Op
+open List
+
+
 type signal = 
   |Present of float 
   |Absent  of unit
 
 and svar = 
   |SCounter of float (* count *)
-  |SDiscrete of float * float (* timer, period *) 
+  |SDiscrete of float * float (* timer period *) 
   
 
 and step =
@@ -32,7 +31,8 @@ and debug = ustring
 and state = 
   {
     portvalue : (port * signal) list;
-    time : superdensetime; 
+    time : (float * int); 
+    index_counter : int;
     addvar:  svar; 
   }
    
@@ -56,7 +56,7 @@ and fmi =
     alloutputvar : port list;
     globaldependencies : ( port *  port) list;
     portmapping : (port * port) list;
-    fminame : ustring;
+    debugname : ustring;
   }
 
 and graph = 
