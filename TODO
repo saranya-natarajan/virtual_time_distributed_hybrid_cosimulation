@@ -1,0 +1,22 @@
+Components
+1. Constant signal generator. 
+2. Gain 
+3. Adder  
+4. Periodic piecewise constant signal generator 
+5. Periodic discrete signal generator 
+6. Modal model with discrete control. 
+7. Integrator.
+8. Integrator with reset.
+9. ZCD
+10. Zero prder hold. 
+11. Sampler 
+12. Discrete Time Delay 
+13. Discret microstep delay
+14. Counter 
+
+Test Cases 
+1. Simulatneous events 
+2. Integrating discontinuous signals 
+3. Integrating glitches
+4. zero-delay feedback
+

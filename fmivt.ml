@@ -8,18 +8,6 @@ exception FMU_error of string
 (* port : name
    Note : this implementation supports only real values *)
 
-
-type port_type = 
-  |Input_0  of ustring 
-  |Input_1  of ustring 
-  |Input_2  of ustring 
-  |Input_3  of ustring 
-  |Input_4  of ustring 
-  |Output_0 of ustring 
-  |Output_1 of ustring 
-  |Output_2 of ustring 
-  |Output_3 of ustring 
-  |Output_4 of ustring 
    
 type port = port_type
 

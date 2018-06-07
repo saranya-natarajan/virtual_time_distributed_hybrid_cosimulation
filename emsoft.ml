@@ -68,15 +68,6 @@ let print_graph (g : graph) =
    uprint_string (us "NODES: "); uprint_newline (); print_all_nodes g.nodes; uprint_string (us "EDGES: ");uprint_newline (); print_all_edges g.edges 
 
 
-let print_time t =
-  uprint_string (us "TIME : ("); uprint_float t.model_time; uprint_string (us ","); uprint_int t.index; uprint_string (us ")"); uprint_newline ()
-
-let print_signal sg =
-  match sg with 
-  | Absent() -> uprint_string (us "Absent") 
-  | Present(a) -> uprint_float a
-
-
 (*topological search *)
 let rec nodes_with_no_incoming_edge nodelist edgelist =
   match nodelist with 

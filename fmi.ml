@@ -65,4 +65,12 @@ and graph =
     edges : (port * port) list;
   }
 
+let print_time t =
+  uprint_string (us "TIME : ("); uprint_float t.model_time; uprint_string (us ","); uprint_int t.index; uprint_string (us ")"); uprint_newline ()
+
+let print_signal sg =
+  match sg with 
+  | Absent() -> uprint_string (us "Absent") 
+  | Present(a) -> uprint_float a
+
 
