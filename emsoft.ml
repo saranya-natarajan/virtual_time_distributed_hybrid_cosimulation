@@ -35,11 +35,20 @@ let rec save_state cr smap =
                 (ht.debugname, st) :: (save_state rst smap)
   |[] -> []
 
-let rec restore_state cr rmap = 
+let rec restore_state cr rmap =
   match cr with 
   | ht :: rst -> let st = List.assoc ht.debugname rmap in
 			 (ht.debugname, st) :: restore_state rst rmap 
   | [] -> []
+
+let rec add_other_fmu_with_no_rollback cp smap = 
+  match cp with 
+  | ht :: rst -> let st = List.assoc ht.debugname smap in
+			 (ht.debugname, st) :: restore_state rst smap 
+  | [] -> []
+
+
+
    
  
 let rec find_all_edges (pmap :(port * port) list) (ivar : port list) = 
@@ -103,27 +112,45 @@ let result_topological_sort g =
 *)
 
 let get m y =
-  let (nme, s) = m in 
-  match s.addvar with 
+  let (nme, s) = m in
+  let _ = uprint_string ((us "get: ") ^. nme ^. (us ":")) in  
+  (match s.addvar with 
   |SCounter(count) -> get_counter s y 
-  |SDiscrete(t, p) -> get_periodic_clock s y 
+  |SAdder(sum) -> get_adder s y
+  |SDiscrete(t, p) -> get_periodic_clock s y
+  |SConst(a) -> get_const s y
+  |SGain(_, _) -> get_gain s y
+  |SDisreteTimeDelay(_,_)-> get_discrete_time_delay s y
+  |SMicrostepDelay(_) -> get_microstep_delay s y) 
  
 let set m u v =
  let (name, ste) = m in 
- let portupdated = List.map (fun a -> if (u = (fst a)) then ((fst a), v) else a) ste.portvalue in 
+ let _ = uprint_string ((us "set ") ^. name ^. (us ":")) in  
+ let portupdated = List.map (fun a -> if (u = (fst a)) then ((fst a), v) else a) ste.portvalue in
+ let _ = print_port (List.find (fun a -> u = (fst a)) portupdated); uprint_newline() in
  let mupdated = (name, {ste with portvalue = portupdated}) in 
  mupdated
 
 let do_step s h =
  match s.addvar with 
  |SCounter(a) -> do_step_counter s h
+ |SAdder(a) -> do_step_adder s h
  |SDiscrete(t, p) -> do_step_periodic_clock s h
+ |SConst(a) -> do_step_const s h
+ |SGain(_, _) -> do_step_gain s h 
+ |SDisreteTimeDelay(_,_) -> do_step_discrete_time_delay s h
+ |SMicrostepDelay(_) -> do_step_microstep_delay  s h  
 
 
 let get_max_step_size s = 
  match s.addvar with
- |SCounter(a) -> infinity 
- |SDiscrete(t, p) -> t
+ |SCounter(a) -> get_max_step_size_counter s 
+ |SAdder(a) -> get_max_step_size_adder s 
+ |SDiscrete(t, p) -> get_max_step_size_periodic_clock s
+ |SConst(a) -> get_max_step_size_const s
+ |SDisreteTimeDelay(_,_) -> get_max_step_size_discrete_time_delay s 
+ |SMicrostepDelay(_) -> get_max_step_size_microstep_delay s  
+ |_ -> uprint_string (us "fmu does not support predictable step size"); raise Not_found
 
 let rec min_step_size_of_fmu clist hp smap = 
   match clist with
@@ -134,7 +161,8 @@ let rec min_step_size_of_fmu clist hp smap =
 
 let rec do_step_list cr smap h =
   match cr with 
-  | ht :: rst -> let s = List.assoc ht.debugname smap in 
+  | ht :: rst -> (*let _ = uprint_string ht.debugname  in*)
+                 let s = List.assoc ht.debugname smap in
                  let (sprime, hprime) = do_step s h in
                  let hmin = min h hprime in
                  let smp = List.map (fun a -> if (ht.debugname = (fst a)) then (ht.debugname, sprime) else a) smap in 
@@ -165,10 +193,12 @@ let step_three allfmus smap =
   let r = save_state cr smap in
   r 
  
-let step_four allfmus smap =
+let step_four allfmus r smap =
   let cr = all_fmus_with_rollback allfmus in
-  let smapprime = restore_state cr smap in 
-  smapprime 
+  let smapprime = restore_state cr r in
+  let cp = all_fmus_with_preditable_step_size allfmus in
+  let smapprimeprime = add_other_fmu_with_no_rollback cp smap in 
+  List.append smapprime smapprimeprime 
 
 let step_five allfmus smap hmin =
   let cr = all_fmus_with_rollback allfmus in
@@ -178,21 +208,51 @@ let step_five allfmus smap hmin =
 let rec rollback_on_accepted_step allfmus smap r h = 
   let (smapprime, hprime) =  step_five allfmus smap h in 
   let hmin = min hprime h in 
-  if (hmin < h) then (let smaprestored = step_four allfmus r in rollback_on_accepted_step allfmus smaprestored r hmin) else (smapprime, hprime)
+  if (hmin < h) then (let smaprestored = step_four allfmus r smap in rollback_on_accepted_step allfmus smaprestored r hmin) else (smapprime, hprime)
 
 let rec step_eight allfmus smap h = 
   let cp = all_fmus_with_preditable_step_size allfmus in 
-  let (smapprime, hprime) = do_step_list cp smap h in 
+  let (smapprime, hprime) = do_step_list cp smap h in
   (smapprime, hprime)
 
 
 let output_of_model modelname smap =
-  if modelname = (us "simplestcounter") then 
-    let my = List.find (fun a -> (fst a) = (us "counter")) smap in
-    let y = us "c" in
-    let (name, ste) = my in
-    let v =  get my y in 
-    uprint_string (us "count="); print_signal v;  uprint_newline ()
+  if (modelname = us "simplestcounter") then
+                     (let my = List.find (fun a -> (fst a) = (us "counter")) smap in
+                      let y = us "c" in
+                      let (name, ste) = my in
+                      let _ = get my y in ());
+  if (modelname = us "simplecounterplusadder") then 
+                             (let my = List.find (fun a -> (fst a) = (us "adder0")) smap in 
+                              let y = us "f" in
+                              let (name, ste) = my in
+                              let _ = get my y in () ); 
+  if (modelname = us "gainplusperiodic") then 
+                             (let my = List.find (fun a -> (fst a) = (us "counter")) smap in 
+                              let y = us "e" in
+                              let (name, ste) = my in
+                              let _ = get my y in () );
+  if (modelname = us "discretedelay") then 
+                             (let my = List.find (fun a -> (fst a) = (us "counter")) smap in 
+                              let y = us "c" in
+                              let (name, ste) = my in
+                              let _ = get my y  in
+                              let my = List.find (fun a -> (fst a) = (us "discretedelay")) smap in 
+                              let y = us "e" in
+                              let (name, ste) = my in
+                              let _ = get my y  in () ); 
+  if (modelname = us "microstepdelay") then 
+                             (let my = List.find (fun a -> (fst a) = (us "periodic_clock0")) smap in 
+                              let y = us "a" in
+                              let (name, ste) = my in
+                              let _ = get my y  in
+                              let my = List.find (fun a -> (fst a) = (us "microstepdelay")) smap in 
+                              let y = us "c" in
+                              let (name, ste) = my in
+                              let _ = get my y  in () ); () 
+
+
+
 
 let masterStepSuperdenseTime fmiset allfmus orderedlist pmap hmax smap =
   (*step one and check*)
@@ -201,32 +261,26 @@ let masterStepSuperdenseTime fmiset allfmus orderedlist pmap hmax smap =
   let smap = step_one orderedinputs smap pmap fmiset.fmuinstances in
   let _ = output_of_model fmiset.fminame smap in 
   (*check : let _ = List.iter (fun a -> print_state (fst a) (snd a)) smap in  *)
-  let h = step_two allfmus smap hmax in 
-  let r = step_three allfmus smap in 
+  let h = step_two allfmus smap hmax in
+  let r = step_three allfmus smap in
   let (m, h) = rollback_on_accepted_step allfmus smap r h in (*step 4 to step 6*)
   let (mprime, hprime) = step_eight allfmus m h in (* skipping step 7 since no legacy supported in this implementation *)
-  if h <> hprime then raise Not_found else (mprime, hprime) 
-
-   
-let initialize_state_periodic_clock portvar period = 
-   {portvalue = [(portvar, Absent())]; time = {time.model_time = 0.0; time.index =0}; index_counter = 0; addvar = SDiscrete(0.0, period)}
-   
-let initialize_state_counter inputvar outputvar initcount= 
-   {portvalue = [(inputvar, Absent()); (outputvar, Absent())]; time = {time.model_time = 0.0; time.index =0}; index_counter = 0; addvar = SCounter(initcount)}
+  if h <> hprime then (uprint_string (us "communication step size error");raise Not_found )else (mprime, hprime) 
 
 
 let rec runSimulation fmiinstance allfmus orderedlist pmap m startime endtime timenow h =  
+  let _ = print_time timenow in
+  let _ = uprint_string (us "h = "); uprint_float h; uprint_newline() in
   let (mprime, hprime) = masterStepSuperdenseTime fmiinstance allfmus orderedlist pmap h m in 
-   let _ = uprint_string (us "h = "); uprint_float h; uprint_newline() in
   let _ = assert(hprime>=0.0) in
   let _ = uprint_string (us "accepted h = "); uprint_float hprime; uprint_newline() in 
-  let _ =  uprint_newline () in
-(*  let (modeltime, index) = timenow in *)
-  let timenow = if (hprime = 0.0) then {timenow with index = (timenow.index + 1)} else {timenow with model_time = (model_time +. hprime); index = 0} in     
+  let timenow = if (hprime = 0.0) then {timenow with index = (timenow.index + 1)} else {timenow with model_time = (timenow.model_time +. hprime); index = 0} in     
   let _ = print_time timenow in
-  if (fst timenow.model_time <= endtime.model_time) then runSimulation fmiinstance allfmus orderedlist pmap mprime startime endtime timenow 2.0 else () 
+  let _ = uprint_newline() in
+  if (timenow.model_time <= endtime.model_time) then (runSimulation fmiinstance allfmus orderedlist pmap mprime startime endtime timenow 2.0) else () 
    
 let testSimplestCounter =
+  let _ = uprint_string (us "periodic_clock -- counter");uprint_newline() in
   let fmu1 = {fmuinputs = []; fmuoutputs = [us "a"]; fmudependecies =[]; fmustate = initialize_state_periodic_clock (us "a") 3.0; debugname = (us "periodic_clock0")} in
   let fmu2 = {fmuinputs = [us "b"]; fmuoutputs = [us "c"]; fmudependecies =[(us "b", us "c")]; fmustate = initialize_state_counter (us "b") (us "c") 0.0; debugname = (us "counter")} in
   let ivar = List.append fmu1.fmuinputs fmu2.fmuinputs in 
@@ -238,10 +292,96 @@ let testSimplestCounter =
   let smap = [(fmu1.debugname, fmu1.fmustate); (fmu2.debugname, fmu2.fmustate)] in  
   let g = create_graph (dep) (pmap) (ivar) (ovar) in
   let start_time = {model_time = 0.0; index = 0} in 
-  let end_time = {model_tim = 21.0; index = 0} in 
+  let end_time = {model_time = 21.0; index = 0} in 
   let topo = List.rev (result_topological_sort g) in 
   print_graph g; uprint_string (us "TOPOLOGICAL ORDER: ");uprint_newline (); print_all_nodes topo;
-  runSimulation (fmisimplecounter) allfmus (topo) pmap smap start_time end_time end_time 2.0; () 
+  runSimulation (fmisimplecounter) allfmus (topo) pmap smap start_time end_time start_time 2.0; () 
+
+
+(*let testCounterAdder =
+  let _ = uprint_string (us "periodic_clock -- counter -- const -- adder"); uprint_newline() in
+  let fmu1 = {fmuinputs = []; fmuoutputs = [us "a"]; fmudependecies =[]; fmustate = initialize_state_periodic_clock (us "a") 3.0; debugname = (us "periodic_clock0")} in
+  let fmu2 = {fmuinputs = [us "b"]; fmuoutputs = [us "c"]; fmudependecies =[(us "b", us "c")]; fmustate = initialize_state_counter (us "b") (us "c") 0.0; debugname = (us "counter0")} in
+  let fmu3 = {fmuinputs = [us "d"; us "e"]; fmuoutputs = [us "f"]; fmudependecies =[(us "d", us "f"); (us "e", us "f")]; fmustate = initialize_state_adder [(us "d"); (us "e"); (us "f")] 0.0; debugname = (us "adder0")} in
+  let fmu4 = {fmuinputs = []; fmuoutputs = [us "g"]; fmudependecies =[]; fmustate = initialize_state_const [(us "g")] 3.0; debugname = (us "const0")} in
+  let ivar = List.append fmu1.fmuinputs (List.append fmu2.fmuinputs (List.append fmu3.fmuinputs fmu4.fmuinputs)) in 
+  let ovar = List.append fmu1.fmuoutputs (List.append fmu2.fmuoutputs (List.append fmu3.fmuoutputs fmu4.fmuoutputs)) in
+  let pmap = [((us "b"), (us "a")); ((us "d"), (us "c"));  ((us "e"), (us "g"))] in 
+  let dep =  List.append fmu1.fmudependecies (List.append fmu2.fmudependecies (List.append fmu3.fmudependecies fmu4.fmudependecies)) in 
+  let fmicounteradder = {fmuinstances = [fmu1; fmu2; fmu3; fmu4]; allinputvar = ivar; alloutputvar = ovar; globaldependencies = dep; portmapping = pmap; fminame = us "simplecounterplusadder"} in
+  let allfmus = ([fmu1;fmu2; fmu3], [fmu4], []) in 
+  let smap = [(fmu1.debugname, fmu1.fmustate); (fmu2.debugname, fmu2.fmustate); (fmu3.debugname, fmu3.fmustate); (fmu4.debugname, fmu4.fmustate)] in  
+  let g = create_graph (dep) (pmap) (ivar) (ovar) in
+  let start_time = {model_time = 0.0; index = 0} in 
+  let end_time = {model_time = 0.0; index = 0} in 
+  let topo = List.rev (result_topological_sort g) in 
+  print_graph g; uprint_string (us "TOPOLOGICAL ORDER: ");uprint_newline (); print_all_nodes topo;
+  runSimulation (fmicounteradder) allfmus (topo) pmap smap start_time end_time start_time 2.0; () *)
+
+let testCounterGain =
+  let _ = uprint_string (us "periodic_clock -- gain"); uprint_newline() in
+  let fmu1 = {fmuinputs = []; fmuoutputs = [us "a"]; fmudependecies =[]; fmustate = initialize_state_periodic_clock (us "a") 3.0; debugname = (us "periodic_clock0")} in
+  let fmu2 = {fmuinputs = [us "b"]; fmuoutputs = [us "c"]; fmudependecies =[(us "b", us "c")]; fmustate = initialize_state_gain [(us "b"); (us "c")] 0.0; debugname = (us "gain0")} in
+  let fmu3 = {fmuinputs = [us "d"]; fmuoutputs = [us "e"]; fmudependecies =[(us "d", us "e")]; fmustate = initialize_state_counter (us "d") (us "e") 3.0; debugname = (us "counter")} in
+  let ivar = List.append fmu1.fmuinputs  (List.append fmu2.fmuinputs fmu3.fmuinputs) in 
+  let ovar = List.append fmu1.fmuoutputs (List.append fmu2.fmuoutputs fmu3.fmuoutputs) in
+  let pmap = [((us "b"), (us "a")); ((us "d"), (us "c"))] in 
+  let dep =  List.append fmu1.fmudependecies (List.append fmu2.fmudependecies fmu3.fmudependecies)in 
+  let fmicounteradder = {fmuinstances = [fmu1; fmu2; fmu3]; allinputvar = ivar; alloutputvar = ovar; globaldependencies = dep; portmapping = pmap; fminame = us "gainplusperiodic"} in
+  let allfmus = ([fmu1;fmu3], [fmu2], []) in 
+  let smap = [(fmu1.debugname, fmu1.fmustate); (fmu2.debugname, fmu2.fmustate); (fmu3.debugname, fmu3.fmustate)] in  
+  let g = create_graph (dep) (pmap) (ivar) (ovar) in
+  let start_time = {model_time = 0.0; index = 0} in 
+  let end_time = {model_time = 0.0; index = 0} in 
+  let topo = List.rev (result_topological_sort g) in 
+  print_graph g; uprint_string (us "TOPOLOGICAL ORDER: ");uprint_newline (); print_all_nodes topo;
+  runSimulation (fmicounteradder) allfmus (topo) pmap smap start_time end_time start_time 2.0; ()
+
+
+let testdiscretedelay =
+  let _ = uprint_string (us "periodic_clock -- counter -- discrete delay");uprint_newline() in
+  let fmu1 = {fmuinputs = []; fmuoutputs = [us "a"]; fmudependecies =[]; fmustate = initialize_state_periodic_clock (us "a") 2.0; debugname = (us "periodic_clock0")} in
+  let fmu2 = {fmuinputs = [us "b"]; fmuoutputs = [us "c"]; fmudependecies =[(us "b", us "c")]; fmustate = initialize_state_counter (us "b") (us "c") 0.0; debugname = (us "counter")} in
+  let fmu3 = {fmuinputs = [us "d"]; fmuoutputs = [us "e"]; fmudependecies =[(us "d", us "e")]; fmustate =  initialize_state_discrete_time_delay  [(us "d"); (us "e")] 2.0; debugname = (us "discretedelay")} in
+  let ivar = List.append fmu1.fmuinputs (List.append fmu2.fmuinputs fmu3.fmuinputs)  in 
+  let ovar = List.append fmu1.fmuoutputs (List.append fmu2.fmuoutputs fmu3.fmuinputs) in
+  let pmap = [((us "b"), (us "a")); ((us "d"), (us "c"))] in 
+  let dep = List.append fmu1.fmudependecies (List.append fmu2.fmudependecies fmu3.fmudependecies) in 
+  let fmisimplecounter = {fmuinstances = [fmu1; fmu2; fmu3]; allinputvar = ivar; alloutputvar = ovar; globaldependencies = dep; portmapping = pmap; fminame = us "discretedelay"} in
+  let allfmus = ([fmu1;fmu2;fmu3], [], []) in 
+  let smap = [(fmu1.debugname, fmu1.fmustate); (fmu2.debugname, fmu2.fmustate); (fmu3.debugname, fmu3.fmustate)] in  
+  let g = create_graph (dep) (pmap) (ivar) (ovar) in
+  let start_time = {model_time = 0.0; index = 0} in 
+  let end_time = {model_time = 21.0; index = 0} in 
+  let topo = List.rev (result_topological_sort g) in 
+  print_graph g; uprint_string (us "TOPOLOGICAL ORDER: ");uprint_newline (); print_all_nodes topo;
+  runSimulation (fmisimplecounter) allfmus (topo) pmap smap start_time end_time start_time 2.0; () 
+
+
+
+let testmicrostepdelay =
+  let _ = uprint_string (us "periodic_clock -- discrete delay");uprint_newline() in
+  let fmu1 = {fmuinputs = []; fmuoutputs = [us "a"]; fmudependecies =[]; fmustate = initialize_state_periodic_clock (us "a") 2.0; debugname = (us "periodic_clock0")} in
+  let fmu2 = {fmuinputs = [us "b"]; fmuoutputs = [us "c"]; fmudependecies =[(us "b", us "c")]; fmustate = initialize_state_microstep_delay [(us "b"); (us "c")]; debugname = (us "microstepdelay")} in
+  let ivar = List.append fmu1.fmuinputs fmu2.fmuinputs  in 
+  let ovar = List.append fmu1.fmuoutputs fmu2.fmuoutputs in
+  let pmap = [((us "b"), (us "a"))] in 
+  let dep = List.append fmu1.fmudependecies fmu2.fmudependecies in 
+  let fmisimplecounter = {fmuinstances = [fmu1; fmu2]; allinputvar = ivar; alloutputvar = ovar; globaldependencies = dep; portmapping = pmap; fminame = us "microstepdelay"} in
+  let allfmus = ([fmu1;fmu2], [], []) in 
+  let smap = [(fmu1.debugname, fmu1.fmustate); (fmu2.debugname, fmu2.fmustate)] in  
+  let g = create_graph (dep) (pmap) (ivar) (ovar) in
+  let start_time = {model_time = 0.0; index = 0} in 
+  let end_time = {model_time = 21.0; index = 0} in 
+  let topo = List.rev (result_topological_sort g) in 
+  print_graph g; uprint_string (us "TOPOLOGICAL ORDER: ");uprint_newline (); print_all_nodes topo;
+  runSimulation (fmisimplecounter) allfmus (topo) pmap smap start_time end_time start_time 2.0; () 
+
+
+
+
+
+ 
 
 
 

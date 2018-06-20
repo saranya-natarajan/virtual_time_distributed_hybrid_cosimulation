@@ -1,7 +1,7 @@
 open Ustring.Op
 open List
 
-exception FMU_error of string
+exception Fmu_error of string
 (* port : name
    Note : this implementation supports only real values *)
    
@@ -19,9 +19,14 @@ type signal =
 
 and svar = 
   |SCounter of float (* count *)
-  |SDiscrete of float * float (* timer, period *) 
-  
-
+  |SAdder of float   (* sum *)
+  |SDiscrete of float * float (* timer, period *)
+  |SConst of float (* const *)
+  |SGain of float * signal
+  |SDisreteTimeDelay of float * state list (*parameter, state list*)
+  |SMicrostepDelay of state list (*state list*)
+  |SIntegrator of signal * signal * signal (*last output, input, initial value *)
+ 
 and step =
   | Default of unit 
   | Variable of unit 
@@ -65,6 +70,9 @@ and graph =
     edges : (port * port) list;
   }
 
+let fmu_debug_print s =
+  uprint_string ((us "debug message:") ^. (us s)); uprint_newline()
+
 let print_time t =
   uprint_string (us "TIME : ("); uprint_float t.model_time; uprint_string (us ","); uprint_int t.index; uprint_string (us ")"); uprint_newline ()
 
@@ -72,5 +80,8 @@ let print_signal sg =
   match sg with 
   | Absent() -> uprint_string (us "Absent") 
   | Present(a) -> uprint_float a
+
+let print_port p = 
+ uprint_string ((fst p) ^. (us "=")); print_signal (snd p)
 
 
