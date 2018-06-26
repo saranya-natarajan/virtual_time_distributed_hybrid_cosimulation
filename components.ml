@@ -339,7 +339,32 @@ let do_step_integrator s h =
   (updatedstate, h)  
  
 let initialize_integator allvar initval = 
-   {portvalue = [((List.nth allvar 0), Present(List.nth initval 0)); ((List.nth allvar 1), Present(List.nth initval 1))]; time = {model_time = 0.0; index = 0}; addvar = SIntegrator(Present(List.nth initval 0), Present(List.nth initval 1), Present(List.nth initval 2))} 
+   {portvalue = [((List.nth allvar 0), Present(List.nth initval 0)); ((List.nth allvar 1), Present(List.nth initval 1))]; time = {model_time = 0.0; index = 0}; addvar = SIntegrator(Present(List.nth initval 0), Present(List.nth initval 1), Present(List.nth initval 2))}
+
+
+(*sine wave 
+  List.nth s.portvalue 0 : output
+*)
+
+
+let get_max_step_size_sinewave s  =
+  infinity
+
+
+let get_sinewave s y =
+  let (omega, opval, step) = (match s.addvar with
+        			         |SSine(oval, pval, step) -> (oval, pval, step)
+           			         | _ -> raise (Fmu_error "not sinewave"))  in
+   uprint_string (fst (List.nth s.portvalue 0) ^. (us "=")); print_signal opval ;  uprint_newline(); opval
+
+let do_step_sinewave s h =
+  let local_time = s.time in 
+  let(ipvar, ipval) = List.nth s.portvalue 0 in
+  let updatedtime = if (h <> 0.0) then {model_time = local_time.model_time +. h; index = 0} else {model_time = local_time.model_time; index = local_time.index + 1} in
+
+
+
+   
 
 
 
