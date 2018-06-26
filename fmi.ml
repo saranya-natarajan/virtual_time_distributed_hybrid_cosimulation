@@ -26,6 +26,7 @@ and svar =
   |SDisreteTimeDelay of float * state list (*parameter, state list*)
   |SMicrostepDelay of state list (*state list*)
   |SIntegrator of signal * signal * signal (*last output, input, initial value *)
+  |SSine of float * float * float * float (*phase, frequency, samplingRate, previousStep*)
  
 and step =
   | Default of unit 

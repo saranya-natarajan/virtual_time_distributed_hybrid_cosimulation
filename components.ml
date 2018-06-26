@@ -303,10 +303,16 @@ let initialize_state_microstep_delay allvar =
   List.nth s.portvalue 0 : input 
   List.nth s.portvalue 1 : output 
 *)
-let euler_method ip_now op_now h =
+let euler_method_test op_now h t =
+  let ip_now = (t *. op_now) +. (t *. t *. t) in
   let op_next = op_now +. (h *. ip_now) in
   op_next
 
+let euler_method ip_now op_now h = 
+  let op_next = op_now +. (h *. ip_now) in
+  op_next
+
+  
 
 let get_max_step_size_integrator s  =
   infinity
@@ -314,8 +320,8 @@ let get_max_step_size_integrator s  =
 let get_integrator s y =
   let opval = (match s.addvar with 
                |SIntegrator(op, _, _) -> op
-               | _ -> raise Fmu_error("not integrator")) in
-  opval
+               | _ -> raise (Fmu_error "not integrator") ) in
+  uprint_string (fst (List.nth s.portvalue 1) ^. (us "=")); print_signal opval ;  uprint_newline(); opval
 
 let do_step_integrator s h = 
   let local_time = s.time in 
@@ -323,14 +329,17 @@ let do_step_integrator s h =
   let updatedtime = if (h <> 0.0) then {model_time = local_time.model_time +. h; index = 0} else {model_time = local_time.model_time; index = local_time.index + 1} in
   let (opst, ipst, init) =  (match s.addvar with 
                |SIntegrator(op, ip, init) -> (op, ip, init)
-               | _ -> raise Fmu_error("not integrator")) in
-  let opval = (match opprev with 
-               |Present(a) -> euler_method ipval a h
-               | Absent() ->  raise Fmu_error("some serious error in integrator"))  in
-  let updatedstate = {s with time = updatedtime; addvar = SIntegrator(opval, ipval, init)} 
+               | _ -> raise (Fmu_error "not integrator")) in
+  let opval = (match opst with 
+               |Present(a) -> (match ipval with 
+                               |Present(b) -> Present(euler_method_test a h local_time.model_time)
+                               |Absent() -> Absent())
+               | Absent() ->  raise (Fmu_error "some serious error in integrator"))  in
+  let updatedstate = {s with time = updatedtime; addvar = SIntegrator(opval, ipval, init)} in 
+  (updatedstate, h)  
  
 let initialize_integator allvar initval = 
-   {portvalue = [((List.nth allvar 0), Absent()); ((List.nth allvar 1), Absent())]; time = {model_time = 0.0; index = 0}; addvar = SMicrostepDelay([])} 
+   {portvalue = [((List.nth allvar 0), Present(List.nth initval 0)); ((List.nth allvar 1), Present(List.nth initval 1))]; time = {model_time = 0.0; index = 0}; addvar = SIntegrator(Present(List.nth initval 0), Present(List.nth initval 1), Present(List.nth initval 2))} 
 
 
 

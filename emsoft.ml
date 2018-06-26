@@ -121,9 +121,11 @@ let get m y =
   |SConst(a) -> get_const s y
   |SGain(_, _) -> get_gain s y
   |SDisreteTimeDelay(_,_)-> get_discrete_time_delay s y
-  |SMicrostepDelay(_) -> get_microstep_delay s y) 
+  |SMicrostepDelay(_) -> get_microstep_delay s y
+  |SIntegrator(_, _, _) -> get_integrator s y) 
  
 let set m u v =
+ let _ = fmu_debug_print "set" in  
  let (name, ste) = m in 
  let _ = uprint_string ((us "set ") ^. name ^. (us ":")) in  
  let portupdated = List.map (fun a -> if (u = (fst a)) then ((fst a), v) else a) ste.portvalue in
@@ -132,6 +134,7 @@ let set m u v =
  mupdated
 
 let do_step s h =
+ let _ = fmu_debug_print "do_step" in 
  match s.addvar with 
  |SCounter(a) -> do_step_counter s h
  |SAdder(a) -> do_step_adder s h
@@ -139,17 +142,20 @@ let do_step s h =
  |SConst(a) -> do_step_const s h
  |SGain(_, _) -> do_step_gain s h 
  |SDisreteTimeDelay(_,_) -> do_step_discrete_time_delay s h
- |SMicrostepDelay(_) -> do_step_microstep_delay  s h  
+ |SMicrostepDelay(_) -> do_step_microstep_delay  s h 
+ |SIntegrator(_, _, _) -> do_step_integrator s h
 
 
 let get_max_step_size s = 
+ let _ = fmu_debug_print "get_max_step_size" in  
  match s.addvar with
  |SCounter(a) -> get_max_step_size_counter s 
  |SAdder(a) -> get_max_step_size_adder s 
  |SDiscrete(t, p) -> get_max_step_size_periodic_clock s
  |SConst(a) -> get_max_step_size_const s
  |SDisreteTimeDelay(_,_) -> get_max_step_size_discrete_time_delay s 
- |SMicrostepDelay(_) -> get_max_step_size_microstep_delay s  
+ |SMicrostepDelay(_) -> get_max_step_size_microstep_delay s 
+ |SIntegrator(_, _, _) -> get_max_step_size_integrator s
  |_ -> uprint_string (us "fmu does not support predictable step size"); raise Not_found
 
 let rec min_step_size_of_fmu clist hp smap = 
@@ -217,6 +223,7 @@ let rec step_eight allfmus smap h =
 
 
 let output_of_model modelname smap =
+  let _ = fmu_debug_print "output_of_model" in 
   if (modelname = us "simplestcounter") then
                      (let my = List.find (fun a -> (fst a) = (us "counter")) smap in
                       let y = us "c" in
@@ -249,7 +256,17 @@ let output_of_model modelname smap =
                               let my = List.find (fun a -> (fst a) = (us "microstepdelay")) smap in 
                               let y = us "c" in
                               let (name, ste) = my in
+                              let _ = get my y  in () );
+    if (modelname = us "integrator") then 
+                             (*let my = List.find (fun a -> (fst a) = (us "integrator")) smap in 
+                              let y = us "a" in
+                              let (name, ste) = my in
+                              let _ = get my y  in *) (
+                              let my = List.find (fun a -> (fst a) = (us "integrator")) smap in 
+                              let y = us "b" in
+                              let (name, ste) = my in
                               let _ = get my y  in () ); () 
+ 
 
 
 
@@ -277,7 +294,7 @@ let rec runSimulation fmiinstance allfmus orderedlist pmap m startime endtime ti
   let timenow = if (hprime = 0.0) then {timenow with index = (timenow.index + 1)} else {timenow with model_time = (timenow.model_time +. hprime); index = 0} in     
   let _ = print_time timenow in
   let _ = uprint_newline() in
-  if (timenow.model_time <= endtime.model_time) then (runSimulation fmiinstance allfmus orderedlist pmap mprime startime endtime timenow 2.0) else () 
+  if (timenow.model_time <= endtime.model_time) then (runSimulation fmiinstance allfmus orderedlist pmap mprime startime endtime timenow 0.1 ) else () 
    
 let testSimplestCounter =
   let _ = uprint_string (us "periodic_clock -- counter");uprint_newline() in
@@ -378,7 +395,25 @@ let testmicrostepdelay =
   runSimulation (fmisimplecounter) allfmus (topo) pmap smap start_time end_time start_time 2.0; () 
 
 
+let testintegrator = 
+  let _ = uprint_string (us "integrator"); uprint_newline() in
+  let fmu1 = {fmuinputs = [us "a"]; fmuoutputs = [us "b"]; fmudependecies =[(us "a", us "b")]; fmustate = initialize_integator [(us "a"); (us "b")] [1.0; 0.0; 1.0]; debugname = (us "integrator")} in
+  let ivar = fmu1.fmuinputs in 
+  let ovar = fmu1.fmuoutputs in
+  let dep =  fmu1.fmudependecies in 
+  let pmap = [] in
+  let fmisimpleintegrator = {fmuinstances = [fmu1]; allinputvar = ivar; alloutputvar = ovar; globaldependencies = dep; portmapping = pmap; fminame = us "integrator"} in
+  let allfmus = ([fmu1], [], []) in 
+  let smap = [(fmu1.debugname, fmu1.fmustate)] in  
+  let g = create_graph (dep) (pmap) (ivar) (ovar) in
+  let start_time = {model_time = 0.0; index = 0} in 
+  let end_time = {model_time = 1.0; index = 0} in 
+  let topo = List.rev (result_topological_sort g) in 
+  print_graph g; uprint_string (us "TOPOLOGICAL ORDER: ");uprint_newline (); print_all_nodes topo;
+  runSimulation (fmisimpleintegrator) allfmus (topo) pmap smap start_time end_time start_time 0.1; () 
 
+
+  
 
 
  
