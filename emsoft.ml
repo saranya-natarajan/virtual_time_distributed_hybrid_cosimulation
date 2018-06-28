@@ -122,7 +122,8 @@ let get m y =
   |SGain(_, _) -> get_gain s y
   |SDisreteTimeDelay(_,_)-> get_discrete_time_delay s y
   |SMicrostepDelay(_) -> get_microstep_delay s y
-  |SIntegrator(_, _, _) -> get_integrator s y) 
+  |SIntegrator(_, _, _) -> get_integrator s y
+  |SSine(_, _, _, _) -> get_sinewave s y ) 
  
 let set m u v =
  let _ = fmu_debug_print "set" in  
@@ -144,6 +145,7 @@ let do_step s h =
  |SDisreteTimeDelay(_,_) -> do_step_discrete_time_delay s h
  |SMicrostepDelay(_) -> do_step_microstep_delay  s h 
  |SIntegrator(_, _, _) -> do_step_integrator s h
+ |SSine(_, _, _, _) -> do_step_sinewave s h 
 
 
 let get_max_step_size s = 
@@ -156,6 +158,7 @@ let get_max_step_size s =
  |SDisreteTimeDelay(_,_) -> get_max_step_size_discrete_time_delay s 
  |SMicrostepDelay(_) -> get_max_step_size_microstep_delay s 
  |SIntegrator(_, _, _) -> get_max_step_size_integrator s
+ |SSine(_, _, _, _) -> get_max_step_size_sinewave s 
  |_ -> uprint_string (us "fmu does not support predictable step size"); raise Not_found
 
 let rec min_step_size_of_fmu clist hp smap = 
@@ -265,7 +268,16 @@ let output_of_model modelname smap =
                               let my = List.find (fun a -> (fst a) = (us "integrator")) smap in 
                               let y = us "b" in
                               let (name, ste) = my in
-                              let _ = get my y  in () ); () 
+                              let _ = get my y  in () );
+    if (modelname = us "sinewave") then 
+                             (*let my = List.find (fun a -> (fst a) = (us "integrator")) smap in 
+                              let y = us "a" in
+                              let (name, ste) = my in
+                              let _ = get my y  in *) (
+                              let my = List.find (fun a -> (fst a) = (us "sinewave")) smap in 
+                              let y = us "a" in
+                              let (name, ste) = my in
+                              let _ = get my y  in () ); ()  
  
 
 
@@ -397,7 +409,7 @@ let testmicrostepdelay =
 
 let testintegrator = 
   let _ = uprint_string (us "integrator"); uprint_newline() in
-  let fmu1 = {fmuinputs = [us "a"]; fmuoutputs = [us "b"]; fmudependecies =[(us "a", us "b")]; fmustate = initialize_integator [(us "a"); (us "b")] [1.0; 0.0; 1.0]; debugname = (us "integrator")} in
+  let fmu1 = {fmuinputs = [us "a"]; fmuoutputs = [us "b"]; fmudependecies =[(us "a", us "b")]; fmustate = initialize_state_integator [(us "a"); (us "b")] [1.0; 0.0; 1.0]; debugname = (us "integrator")} in
   let ivar = fmu1.fmuinputs in 
   let ovar = fmu1.fmuoutputs in
   let dep =  fmu1.fmudependecies in 
@@ -410,7 +422,25 @@ let testintegrator =
   let end_time = {model_time = 1.0; index = 0} in 
   let topo = List.rev (result_topological_sort g) in 
   print_graph g; uprint_string (us "TOPOLOGICAL ORDER: ");uprint_newline (); print_all_nodes topo;
-  runSimulation (fmisimpleintegrator) allfmus (topo) pmap smap start_time end_time start_time 0.1; () 
+  runSimulation (fmisimpleintegrator) allfmus (topo) pmap smap start_time end_time start_time 0.1; ()
+
+
+let testintegrator = 
+  let _ = uprint_string (us "sinewave"); uprint_newline() in
+  let fmu1 = {fmuinputs = []; fmuoutputs = [us "a"]; fmudependecies =[]; fmustate = initialize_state_sinewave (us "a") 8000.0 440.0 0.0; debugname = (us "sinewave")} in
+  let ivar = fmu1.fmuinputs in 
+  let ovar = fmu1.fmuoutputs in
+  let dep =  fmu1.fmudependecies in 
+  let pmap = [] in
+  let fmisimpleintegrator = {fmuinstances = [fmu1]; allinputvar = ivar; alloutputvar = ovar; globaldependencies = dep; portmapping = pmap; fminame = us "sinewave"} in
+  let allfmus = ([fmu1], [], []) in 
+  let smap = [(fmu1.debugname, fmu1.fmustate)] in  
+  let g = create_graph (dep) (pmap) (ivar) (ovar) in
+  let start_time = {model_time = 0.0; index = 0} in 
+  let end_time = {model_time = 5.0; index = 0} in 
+  let topo = List.rev (result_topological_sort g) in 
+  print_graph g; uprint_string (us "TOPOLOGICAL ORDER: ");uprint_newline (); print_all_nodes topo;
+  runSimulation (fmisimpleintegrator) allfmus (topo) pmap smap start_time end_time start_time 0.1; ()  
 
 
   

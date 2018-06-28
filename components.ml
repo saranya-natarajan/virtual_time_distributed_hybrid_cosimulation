@@ -338,33 +338,77 @@ let do_step_integrator s h =
   let updatedstate = {s with time = updatedtime; addvar = SIntegrator(opval, ipval, init)} in 
   (updatedstate, h)  
  
-let initialize_integator allvar initval = 
+let initialize_state_integator allvar initval = 
    {portvalue = [((List.nth allvar 0), Present(List.nth initval 0)); ((List.nth allvar 1), Present(List.nth initval 1))]; time = {model_time = 0.0; index = 0}; addvar = SIntegrator(Present(List.nth initval 0), Present(List.nth initval 1), Present(List.nth initval 2))}
 
 
 (*sine wave 
   List.nth s.portvalue 0 : output
+  input parameter for init are samplingRate, frequency, phase
 *)
 
-
-let get_max_step_size_sinewave s  =
+let pi = 
+  4.0 *. atan 1.0 
+   
+let rec generate_sinewave s t =
+  let (accstep, opval, arg, delta_time) = (match s.addvar with
+        			         |SSine(total_time, sample_value , argval, dtime) -> (total_time, sample_value , argval, dtime)
+           			         | _ -> raise (Fmu_error "not sinewave"))  in
+  (*let _ = fmu_debug_print "generate_sinewave   t = "; uprint_float t; uprint_newline (); fmu_debug_print "generate_sinewave   acc = "; uprint_float accstep;uprint_newline () in *)
+  if (t > accstep) then (generate_sinewave {s with addvar = SSine((accstep +. delta_time), Present( sin (arg *. accstep)), arg, delta_time)} t) else SSine(accstep, opval, arg, delta_time) 
+  
+let get_max_step_size_sinewave s =
   infinity
 
-
 let get_sinewave s y =
-  let (omega, opval, step) = (match s.addvar with
-        			         |SSine(oval, pval, step) -> (oval, pval, step)
+  let (accstep, opval, arg, delta_time) = (match s.addvar with
+        			         |SSine(total_time, sample_value , argval, dtime) -> (total_time, sample_value , argval, dtime)
            			         | _ -> raise (Fmu_error "not sinewave"))  in
-   uprint_string (fst (List.nth s.portvalue 0) ^. (us "=")); print_signal opval ;  uprint_newline(); opval
+  uprint_string (fst (List.nth s.portvalue 0) ^. (us "=")); print_signal opval ;  uprint_newline(); opval
 
 let do_step_sinewave s h =
   let local_time = s.time in 
-  let(ipvar, ipval) = List.nth s.portvalue 0 in
   let updatedtime = if (h <> 0.0) then {model_time = local_time.model_time +. h; index = 0} else {model_time = local_time.model_time; index = local_time.index + 1} in
+  let internalstate = generate_sinewave s (local_time.model_time +. h) in
+  let updatedstate = {s with time = updatedtime; addvar = internalstate} in
+  (updatedstate, h)
+
+let initialize_state_sinewave allvar sampling_rate freq phase  = 
+   {portvalue = [(allvar, Absent())]; time = {model_time = 0.0; index = 0}; addvar = SSine(0.0, Absent(), (freq *. 2.0 *. pi), 1.0 /. sampling_rate)}
 
 
+(* Zero crossing dectector
+  List.nth s.portvalue 0 : input 
+  List.nth s.portvalue 1 : output
 
-   
+
+let secant y0 y1 x0 x1 t =
+  if(y0 *. y1 < 0) then 
+  (let x = x1 -. (x1 -. x0) * y1/(y1 - y0) in
+  (t -. x))
+  else 
+  (h)
+ 
+let get_zcd s y =
+  let opval = (match s.addvar with
+               |SZeroCrossingDetector(li, ci, er) -> if ((abs ci) < er) then Present(1.0) else Absent() 
+               | _ -> raise (Fmu_error "not zcd"))  in
+  uprint_string (fst (List.nth s.portvalue 1) ^. (us "=")); print_signal opval ;  uprint_newline(); opval
+
+let do_step_zcd s h =
+  let local_time = s.time in
+  let hprime = (match s.addvar with
+                    |SZeroCrossingDetector(li, ci, er) -> if ((abs ci) > er) then h else (secant li ci local_time.model_time (local_time.model_time +. h) local_time.model_time h) 
+                    | _ -> raise (Fmu_error "not zcd")) in
+  let updatedtime = if (hprime <> 0.0) then {model_time = local_time.model_time +. hprime; index = 0} else {model_time = local_time.model_time; index = local_time.index + 1} i 
+  let updatedstate = (match s.addvar with
+                      |SZeroCrossingDetector(li, ci, er) -> if (hprime < h) then {s with time = updatedtime; addvar = SZeroCrossingDetector(li, present(0.0), er)}  
+                                                            else {s with time = updatedtime; addvar = SZeroCrossingDetector(ci, ci, er)} in
+  (updatedstate, hprime)
+
+let initialize_state_zcd allvar = 
+   {portvalue = [(allvar, Absent())]; time = {model_time = 0.0; index = 0}; addvar = SSine(0.0, Absent(), (freq *. 2.0 *. pi), 1.0 /. sampling_rate)}  
+*)
 
 
 

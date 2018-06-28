@@ -26,7 +26,8 @@ and svar =
   |SDisreteTimeDelay of float * state list (*parameter, state list*)
   |SMicrostepDelay of state list (*state list*)
   |SIntegrator of signal * signal * signal (*last output, input, initial value *)
-  |SSine of float * signal * float (*phase, frequency, samplingRate, previousStep*)
+  |SSine of float * signal * float * float (*totalTime, sample_value, (phase + (frequency * 2 * pi))/samplingRate, 1/samplingRate*)
+  |SZeroCrossingDetector signal * signal * float (* previous signal , current signal, error *) 
  
 and step =
   | Default of unit 
